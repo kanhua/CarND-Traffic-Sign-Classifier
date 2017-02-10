@@ -4,4 +4,3 @@ data
 models
 *.swp
 *.p
-lenet.*
