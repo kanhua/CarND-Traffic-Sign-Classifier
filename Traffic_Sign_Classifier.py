@@ -21,7 +21,8 @@
 # Load pickled data
 import pickle
 import numpy as np
-
+from sklearn.base import BaseEstimator
+from sklearn.pipeline import Pipeline
 
 # TODO: Fill this in based on where you saved the training and testing data
 
@@ -33,13 +34,8 @@ with open(training_file, mode='rb') as f:
 with open(testing_file, mode='rb') as f:
     test = pickle.load(f)
     
-X_train, y_train = train['features'], train['labels']
-X_test, y_test = test['features'], test['labels']
-
-
-# In[2]:
-
-train['labels'].shape
+raw_X_train, raw_y_train = train['features'], train['labels']
+raw_X_test, raw_y_test = test['features'], test['labels']
 
 
 # ---
@@ -55,7 +51,7 @@ train['labels'].shape
 # 
 # Complete the basic data summary below.
 
-# In[3]:
+# In[2]:
 
 ### Replace each question mark with the appropriate value.
 
@@ -69,7 +65,8 @@ n_test = test["labels"].shape[0]
 image_shape = train["features"][0].shape
 
 # TODO: How many unique classes/labels there are in the dataset.
-n_classes = np.unique(train["labels"]).shape[0]
+all_labels,all_labels_index=np.unique(train['labels'],return_index=True)
+n_classes = all_labels.shape[0]
 
 print("Number of training examples =", n_train)
 print("Number of testing examples =", n_test)
@@ -83,16 +80,16 @@ print("Number of classes =", n_classes)
 # 
 # **NOTE:** It's recommended you start with something simple first. If you wish to do more, come back to it after you've completed the rest of the sections.
 
-# In[4]:
+# In[3]:
 
 ### Data exploration visualization goes here.
 ### Feel free to use as many code cells as needed.
 import matplotlib.pyplot as plt
 # Visualizations will be shown in the notebook.
-get_ipython().magic('matplotlib inline')
+#%matplotlib inline
 
 
-# In[5]:
+# In[4]:
 
 img_id=10
 test_img=train["features"][img_id]
@@ -100,24 +97,32 @@ plt.imshow(test_img)
 print("Label of this image: %s"%train["labels"][img_id])
 
 
-# ### Visualize the distribution of the labels in train data
+# ### Visualize sample images of each label
+
+# In[5]:
+
+f,ax=plt.subplots(5,10,figsize=(20,15))
+for i in range(n_classes):
+    subplot_x=i//10
+    subplot_y=i%10
+    ax[subplot_x,subplot_y].imshow(raw_X_train[all_labels_index[i]])
+    ax[subplot_x,subplot_y].set_title("label: %s"%all_labels[i])
+
+
+# ### Visualize the distribution of the labels in train and test data
 
 # In[6]:
 
+f,ax=plt.subplots(1,2,figsize=(15,5))
 unique_values,unique_counts=np.unique(train["labels"],return_counts=True)
-plt.bar(unique_values,unique_counts)
-plt.xlabel("label")
-plt.ylabel("occurences")
-
-
-# ### Visualize the distribution of the labels in test data
-
-# In[7]:
+ax[0].bar(unique_values,unique_counts)
+ax[0].set_xlabel("label")
+ax[0].set_ylabel("occurences")
 
 unique_values,unique_counts=np.unique(test["labels"],return_counts=True)
-plt.bar(unique_values,unique_counts)
-plt.xlabel("label")
-plt.ylabel("occurences")
+ax[1].bar(unique_values,unique_counts)
+ax[1].set_xlabel("label")
+ax[1].set_ylabel("occurences")
 
 
 # ----
@@ -141,59 +146,182 @@ plt.ylabel("occurences")
 # 
 # Use the code cell (or multiple code cells, if necessary) to implement the first step of your project. Once you have completed your implementation and are satisfied with the results, be sure to thoroughly answer the questions that follow.
 
-# In[8]:
+# In[7]:
 
 ### Preprocess the data here.
 ### Feel free to use as many code cells as needed.
 
 
-# ### Proprocessing 1: convert the image from RGB space to YUV space
+# ### Convert the image from RGB space to YUV space
+# Note: the steps of preprocessing are wrapped into classes in order to be compatible with ```Pipeline``` in Sci-kit learn.
+
+# In[8]:
+
+import cv2
+class YUVConverter(object):
+    
+    def __init__(self,keep_channel=0):
+        self.keep_channel=keep_channel
+        
+    def transform(self,X,y=None,**fit_params):
+        new_data=np.zeros_like(X)
+        for i in range(X.shape[0]):
+            new_data[i,:,:,:]=cv2.cvtColor(X[i,:,:,:], cv2.COLOR_BGR2YUV)
+        
+        
+        new_data=new_data[:,:,:,self.keep_channel]
+        return new_data
+    
+    def fit(self,X,y):
+    
+        return self
+
+
+# ### Normalize the image
 
 # In[9]:
 
+class SubMean(object):
+    
+    def transform(self,X,y=None,**fit_params):
+        
+        mean_X=np.mean(X,axis=(1,2),keepdims=True)
+        return X-mean_X
+    
+    def fit(self,X,y,**fit_params):
+        return self 
+    
+class Standarizer(object):
+    
+    def transform(self,X,y=None,**fit_params):
+        
+        mean_X=np.mean(X,axis=(1,2),keepdims=True)
+        std_X=np.std(X,axis=(1,2),keepdims=True)
+        return (X-mean_X)/std_X
+        
+    
+    def fit(self,X,y,**fit_params):
+        return self
+    
 
-
-# ### Proprocessing 2: normalize the image
 
 # In[10]:
 
-def reduce_dim(data):
-    new_data=np.zeros((data.shape[0],data.shape[1],data.shape[2],1))
-    
-    new_data[:,:,:,0]=data[:,:,:,0]
-    
-    return new_data
 def select_label(X,y,index_list):
+    """
+    Select the dataset with designated labels
+    """
     idx=np.in1d(y,index_list)
-    new_X=X[idx,:,:,:]
+    new_X=X[idx]
     new_y=y[idx]
     
     return new_X,new_y
-def substract_mean(X):
-    mean_X=np.mean(X,axis=(1,2),keepdims=True)
-    return (X-mean_X)/255-0.5
 
-def normalize_image(X):
-    X=X.astype('float32')
-    return X/255.-0.5
+
+# In[11]:
+
+# Pipeline 1: convert the image to YUV space, keep all the channels, run normalization
+p1=Pipeline(steps=[('yuv',YUVConverter(keep_channel=[0,1,2])),('sm',Standarizer())])
+# Pipeline 2: convert the image to YUV space, keep Y channel only,run normalization 
+p2=Pipeline(steps=[('yuv',YUVConverter(keep_channel=[0])),('sm',Standarizer())])
+# Pipelin3 3: Keep the image in RGB space, do normalization.
+p3=Pipeline(steps=[('stdscaler',Standarizer())])
+
+selected_pipeline=p2
+m_X_train=selected_pipeline.fit_transform(raw_X_train,raw_y_train)
+m_X_test=selected_pipeline.fit_transform(raw_X_test,raw_y_test)
+
+
+# In[12]:
+
+m_X_train.shape
+
+
+# In[13]:
+
+f,ax=plt.subplots(5,10,figsize=(20,15))
+for i in range(n_classes):
+    subplot_x=i//10
+    subplot_y=i%10
+    ax[subplot_x,subplot_y].imshow(m_X_train[all_labels_index[i],:,:,0],)
+    ax[subplot_x,subplot_y].set_title("label: %s"%all_labels[i])
 
 
 # ### Question 1 
 # 
 # _Describe how you preprocessed the data. Why did you choose that technique?_
 
-# In[ ]:
-
-
-
-
 # **Answer:**
+# 
+# I tried three different proprocessing. Each of these preprocessing were wrapped into a Sci-kit learn ```Pipeline``` object.
+# 
+# 1. Converting the images from RGB to YUV space and then normalizing the image. 
+# 2. Converting the images from RGB to YUV space, keep Y channel only, and then normalizing the image. This is essentially converting the images from RGB to greyscale.
+# 3. Normalizing the images in their original RGB space. 
+# 
+# Three approaches give very close results in our model. The differences in resulting accuracy on the test dataset is around 1%
 
-# In[11]:
+# In[14]:
 
 ### Generate additional data (OPTIONAL!)
 ### and split the data into training/validation/testing sets here.
 ### Feel free to use as many code cells as needed.
+
+
+# In[15]:
+
+aug_training_file="./traffic-signs-data/aug_train.p"
+with open(aug_training_file, mode='rb') as f:
+    aug_train=pickle.load(f)
+
+
+# In[16]:
+
+X1=aug_train['vert_sym_features']
+y1=aug_train['vert_sym_labels']
+X2=aug_train['horiz_sym_features']
+y2=aug_train['horiz_sym_labels']
+X3=aug_train['fp_features']
+y3=aug_train['fp_labels']
+X4=aug_train['rotate_features']
+y4=aug_train['rotate_lables']
+X5=aug_train['affine_features']
+y5=aug_train['affine_labels']
+
+assert X1.shape[0]==y1.shape[0]
+assert X2.shape[0]==y2.shape[0]
+
+aug_X=np.concatenate((X1,X2,X3,X4,X5),axis=0)
+aug_y=np.concatenate((y1,y2,y3,y4,y5),axis=0)
+aug_X_train=selected_pipeline.fit_transform(aug_X,aug_y)
+
+m_X_train=np.concatenate((m_X_train,aug_X_train),axis=0)
+raw_y_train=np.concatenate((raw_y_train,aug_y),axis=0)
+
+
+# Show the occurances of each label with augmented data
+
+# In[17]:
+
+unique_values,unique_counts=np.unique(train["labels"],return_counts=True)
+plt.bar(unique_values,unique_counts,label="original")
+
+unique_values,unique_counts=np.unique(raw_y_train,return_counts=True)
+plt.bar(unique_values,unique_counts,alpha=0.3,label="augmented")
+plt.xlabel("label")
+plt.ylabel("occurences")
+
+
+# In[18]:
+
+# Fill-in the final X_train,y_train,X_validation, y_validation, X_test, y_test here.
+from sklearn.utils import shuffle
+from sklearn.model_selection import train_test_split
+
+X_train, X_validation, y_train, y_validation = train_test_split(m_X_train, 
+                                                                raw_y_train, test_size=0.2, random_state=2)
+X_test=m_X_test
+y_test=raw_y_test
 
 
 # ### Question 2
@@ -201,79 +329,26 @@ def normalize_image(X):
 # _Describe how you set up the training, validation and testing data for your model. **Optional**: If you generated additional data, how did you generate the data? Why did you generate the data? What are the differences in the new dataset (with generated data) from the original dataset?_
 
 # **Answer:**
+# 
+# I randomly selected 20% of the data in ```train[features]``` as the validation set, and the rest of data in ```train['features']``` were used as the training data. All the test data (```test['features')```) are used as the test data set. 
 
-# In[12]:
+# In[19]:
 
 ### Define your architecture here.
 ### Feel free to use as many code cells as needed.
 
 
-# only select part of the data
-
-# In[13]:
-
-from sklearn.utils import shuffle
-from sklearn.model_selection import train_test_split
-
-# select only Y channel
-
-t_train_y=train["features"]
-t_test_y=test["features"]
-
-select_id=np.unique(y_train)
-sel_train_X,sel_train_y=select_label(X_train,y_train,select_id)
-sel_test_X,sel_test_y=select_label(X_test,y_test,select_id)
-n_classes=len(select_id)
-
-
-# In[14]:
-
-for i in range(10):
-    plt.figure()
-    plt.imshow(sel_train_X[i])
-
-
-# In[15]:
-
-X_train, X_validation, y_train, y_validation = train_test_split(sel_train_X, 
-                                                                sel_train_y, test_size=0.2, random_state=2)
-
-
-# In[19]:
-
-X_train[0].dtype
-
-
 # In[20]:
 
-sel_train_X.dtype
-
-
-# In[ ]:
-
-import copy
-X_train=normalize_image(copy.copy(X_train))
-X_test=normalize_image(copy.copy(X_test))
-X_validation=normalize_image(copy.copy(X_validation))
-
-
-# In[ ]:
-
-plt.hist(X_validation[20].ravel(),bins=100)
-
-
-# In[ ]:
-
 import tensorflow as tf
-EPOCHS = 10
-BATCH_SIZE = 128
-#BATCH_SIZE = 1280
+EPOCHS = 100
+BATCH_SIZE = 1280
 
 
-# In[ ]:
+# In[21]:
 
 from tensorflow.contrib.layers import flatten
-def LeNet(x):    
+def LeNet(x,dropout_keep_prob):    
     # Arguments used for tf.truncated_normal, randomly defines variables for the weights and biases for each layer
     mu = 0
     sigma = 0.1
@@ -282,7 +357,7 @@ def LeNet(x):
     l1_filter_width=5
     l1_filter_height=5
     l1_k_output=6
-    color_channels=3
+    color_channels=X_train.shape[-1]
     
     l1_filter=tf.Variable(tf.truncated_normal([l1_filter_width, 
                                                l1_filter_height, color_channels, l1_k_output],mean=mu,stddev=sigma))
@@ -290,23 +365,23 @@ def LeNet(x):
     
     l1_stride=1
     l1_x = tf.nn.conv2d(x, l1_filter, strides=[1, l1_stride, l1_stride, 1], padding='VALID')
-    
-    
     l1_x = l1_x+ l1_bias
-    
-    
+        
     # TODO: Activation.
     l1_x=tf.nn.relu(l1_x)
+    l1_x=tf.nn.local_response_normalization(l1_x)
 
-   
     # TODO: Pooling. Input = 28x28x6. Output = 14x14x6.
+    
     
     l2_x=tf.nn.max_pool(
     l1_x,
-    ksize=[1, 2, 2, 1],
+    ksize=[1, 3, 3, 1],
     strides=[1, 2, 2, 1],
     padding='VALID')
 
+    l1_output=l2_x
+    
     # TODO: Layer 2: Convolutional. Output = 10x10x16.
     
     l2_k_output=16
@@ -319,29 +394,32 @@ def LeNet(x):
     l2_x = tf.nn.conv2d(l2_x, l2_filter, strides=[1, l1_stride, l1_stride, 1], padding='VALID')
     l2_x = tf.nn.bias_add(l2_x, l2_bias)
 
-    
     # TODO: Activation.
     
     l2_x=tf.nn.relu(l2_x)
+    l2_x=tf.nn.local_response_normalization(l2_x)
     
     # TODO: Pooling. Input = 10x10x16. Output = 5x5x16.
     
     l3_x=tf.nn.max_pool(l2_x,
-                       ksize=[1,2,2,1],
+                       ksize=[1,3,3,1],
                        strides=[1,2,2,1],
                        padding='VALID')
     
     # TODO: Flatten. Input = 5x5x16. Output = 400.
     
     l4_x=flatten(l3_x) # use "-1" to reduce the tensor to 1-d
+    l1_output=flatten(l1_output)
+    print(l4_x.get_shape())
+    print(l1_output.get_shape())
     
-    #assert tf.shape(l4_x)[0]==400
+    l4_x=tf.concat(concat_dim=1,values=[l4_x,l1_output])
+    
     # TODO: Layer 3: Fully Connected. Input = 400. Output = 120.
     
-    features_n=400
-    hidden_layer_1_n=120
     
-    print(l4_x.get_shape())
+    features_n=256+1014
+    hidden_layer_1_n=120
     
     weights_0=tf.Variable(tf.truncated_normal([features_n,hidden_layer_1_n],mean=mu,stddev=sigma))
     biases_0=tf.Variable(tf.zeros(hidden_layer_1_n))
@@ -351,24 +429,23 @@ def LeNet(x):
     # TODO: Activation.
     
     l5_x=tf.nn.relu(l4_x)
+    
+    l5_x=tf.nn.dropout(l5_x,keep_prob=dropout_keep_prob)
 
     # TODO: Layer 4: Fully Connected. Input = 120. Output = 84.
     
     hidden_layer_2_n=84
-    
     weights_1=tf.Variable(tf.truncated_normal([hidden_layer_1_n,hidden_layer_2_n],mean=mu,stddev=sigma))
     biases_1=tf.Variable(tf.zeros([hidden_layer_2_n]))
-    
     l5_x=tf.add(tf.matmul(l5_x,weights_1),biases_1)
     
     # TODO: Activation.
-    
     l6_x=tf.nn.relu(l5_x)
+    l6_x=tf.nn.dropout(l6_x,keep_prob=dropout_keep_prob)
 
     # TODO: Layer 5: Fully Connected. Input = 84. Output = n_classes.
     
     hidden_layer_3_n=n_classes
-    
     weights_2=tf.Variable(tf.truncated_normal([hidden_layer_2_n,hidden_layer_3_n],mean=mu,stddev=sigma))
     biases_2=tf.Variable(tf.zeros([hidden_layer_3_n]))
     
@@ -379,27 +456,32 @@ def LeNet(x):
 
 # Define the training and test set
 
-# In[ ]:
+# In[22]:
 
-x = tf.placeholder(tf.float32, (None, 32, 32, 3))
+print(n_classes)
+
+
+# In[23]:
+
+x = tf.placeholder(tf.float32, (None, *X_train.shape[1:]))
 y = tf.placeholder(tf.int32, (None))
 one_hot_y = tf.one_hot(y, n_classes)
+dropout_keep_prob=tf.placeholder(tf.float32)
 
 
 # training pipeline
 
-# In[ ]:
+# In[24]:
 
-rate = 1e-3
-
-logits = LeNet(x)
+rate = 5e-4
+logits = LeNet(x,dropout_keep_prob)
 cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, one_hot_y)
 loss_operation = tf.reduce_mean(cross_entropy)
 optimizer = tf.train.AdamOptimizer(learning_rate = rate)
 training_operation = optimizer.minimize(loss_operation)
 
 
-# In[ ]:
+# In[25]:
 
 correct_prediction = tf.equal(tf.argmax(logits, 1), tf.argmax(one_hot_y, 1))
 accuracy_operation = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
@@ -411,12 +493,26 @@ def evaluate(X_data, y_data):
     sess = tf.get_default_session()
     for offset in range(0, num_examples, BATCH_SIZE):
         batch_x, batch_y = X_data[offset:offset+BATCH_SIZE], y_data[offset:offset+BATCH_SIZE]
-        accuracy = sess.run(accuracy_operation, feed_dict={x: batch_x, y: batch_y})
+        accuracy = sess.run(accuracy_operation, feed_dict={x: batch_x, y: batch_y,dropout_keep_prob:1.0})
         total_accuracy += (accuracy * len(batch_x))
     return total_accuracy / num_examples
 
 
-# In[ ]:
+# ### Question 3
+# 
+# _What does your final architecture look like? (Type of model, layers, sizes, connectivity, etc.)  For reference on how to build a deep neural network using TensorFlow, see [Deep Neural Network in TensorFlow
+# ](https://classroom.udacity.com/nanodegrees/nd013/parts/fbf77062-5703-404e-b60c-95b78b2f3f9e/modules/6df7ae49-c61c-4bb2-a23e-6527e69209ec/lessons/b516a270-8600-4f93-a0a3-20dfeabe5da6/concepts/83a3a2a2-a9bd-4b7b-95b0-eb924ab14432) from the classroom._
+# 
+
+# **Answer:**
+
+# In[26]:
+
+### Train your model here.
+### Feel free to use as many code cells as needed.
+
+
+# In[27]:
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -430,7 +526,7 @@ with tf.Session() as sess:
         for offset in range(0, num_examples, BATCH_SIZE):
             end = offset + BATCH_SIZE
             batch_x, batch_y = X_train[offset:end], y_train[offset:end]
-            sess.run(training_operation, feed_dict={x: batch_x, y: batch_y})
+            sess.run(training_operation, feed_dict={x: batch_x, y: batch_y,dropout_keep_prob:0.5})
             
         validation_accuracy = evaluate(X_validation, y_validation)
         print("EPOCH {} ...".format(i+1))
@@ -439,20 +535,17 @@ with tf.Session() as sess:
         
     saver.save(sess, './lenet')
     print("Model saved")
+    test_accuracy = evaluate(X_test, y_test)
+    print("test accuracy: %s"%test_accuracy)
 
 
-# ### Question 3
-# 
-# _What does your final architecture look like? (Type of model, layers, sizes, connectivity, etc.)  For reference on how to build a deep neural network using TensorFlow, see [Deep Neural Network in TensorFlow
-# ](https://classroom.udacity.com/nanodegrees/nd013/parts/fbf77062-5703-404e-b60c-95b78b2f3f9e/modules/6df7ae49-c61c-4bb2-a23e-6527e69209ec/lessons/b516a270-8600-4f93-a0a3-20dfeabe5da6/concepts/83a3a2a2-a9bd-4b7b-95b0-eb924ab14432) from the classroom._
-# 
+# In[28]:
 
-# **Answer:**
-
-# In[ ]:
-
-### Train your model here.
-### Feel free to use as many code cells as needed.
+with tf.Session() as sess:
+    loader = tf.train.import_meta_graph('lenet.meta')
+    saver.restore(sess, tf.train.latest_checkpoint('.'))
+    test_accuracy = evaluate(X_test, y_test)
+    print("test accuracy: %s"%test_accuracy)
 
 
 # ### Question 4
@@ -468,6 +561,11 @@ with tf.Session() as sess:
 # _What approach did you take in coming up with a solution to this problem? It may have been a process of trial and error, in which case, outline the steps you took to get to the final solution and why you chose those steps. Perhaps your solution involved an already well known implementation or architecture. In this case, discuss why you think this is suitable for the current problem._
 
 # **Answer:**
+# 
+# **Preprocessing:**
+# 
+# 
+# 
 
 # ---
 # 
@@ -481,10 +579,35 @@ with tf.Session() as sess:
 # 
 # Use the code cell (or multiple code cells, if necessary) to implement the first step of your project. Once you have completed your implementation and are satisfied with the results, be sure to thoroughly answer the questions that follow.
 
-# In[ ]:
+# In[29]:
 
 ### Load the images and plot them here.
 ### Feel free to use as many code cells as needed.
+
+
+# In[30]:
+
+# Load signnames.csv
+import pandas as pd
+signnames_df=pd.DataFrame.from_csv("signnames.csv")
+signnames_df.head()
+
+
+# In[31]:
+
+signnames_df.tail()
+
+
+# In[32]:
+
+import matplotlib.image as mpimg
+
+total_image=8
+all_test_image=np.zeros((total_image,32,32,3))
+for i in range(1,total_image+1):
+    img_file='./additional_images/img_%s.jpeg'%i
+    image1=mpimg.imread(img_file)
+    all_test_image[i-1]=image1
 
 
 # ### Question 6
@@ -495,7 +618,7 @@ with tf.Session() as sess:
 
 # **Answer:**
 
-# In[ ]:
+# In[33]:
 
 ### Run the predictions here.
 ### Feel free to use as many code cells as needed.
@@ -510,10 +633,37 @@ with tf.Session() as sess:
 
 # **Answer:**
 
-# In[ ]:
+# In[34]:
 
 ### Visualize the softmax probabilities here.
 ### Feel free to use as many code cells as needed.
+
+
+# In[35]:
+
+all_conv_test_image=selected_pipeline.fit_transform(all_test_image.astype(np.uint8),None)
+
+
+# In[36]:
+
+top_k=3 #the number of top probabilities to be output
+predict=tf.argmax(logits, 1)
+predict_prob=tf.nn.softmax(logits)
+top_pred_prob=tf.nn.top_k(predict_prob,top_k)
+with tf.Session() as sess:
+    loader = tf.train.import_meta_graph('lenet.meta')
+    saver.restore(sess, tf.train.latest_checkpoint('.'))
+    
+    predictions=sess.run(predict_prob,feed_dict={x:all_conv_test_image,dropout_keep_prob:1.0})
+    results=sess.run(top_pred_prob,feed_dict={x:all_conv_test_image,dropout_keep_prob:1.0})
+
+
+# In[37]:
+
+for i in range(total_image):
+    plt.figure(figsize=(2,2))
+    plt.imshow(all_test_image[i].astype(np.uint8))
+    plt.title(signnames_df.iloc[predictions[i].argmax(),0])
 
 
 # ### Question 8
@@ -554,10 +704,73 @@ with tf.Session() as sess:
 # 
 # Looking just at the first row we get `[ 0.34763842,  0.24879643,  0.12789202]`, you can confirm these are the 3 largest probabilities in `a`. You'll also notice `[3, 0, 5]` are the corresponding indices.
 
+# In[38]:
+
+for i in range(results.values.shape[0]):
+    fg,ax=plt.subplots(1,2,figsize=(10,2))
+    idx=results.indices[i,:]
+    width=2
+    ind=np.arange(top_k)
+    ax[0].imshow(all_test_image[i].astype(np.uint8))
+    ax[0].set_title("image_%s"%(i+1))
+    ax[1].barh(width+ind,
+            results.values[i,:],width*0.3,align='center')
+    ax[1].set_yticks(ind + width)
+    ax[1].set_yticklabels(signnames_df.iloc[idx,0].values)
+    ax[1].set_xlabel('probability')
+
+
 # **Answer:**
+# 
+# The images
 
 # > **Note**: Once you have completed all of the code implementations and successfully answered each question above, you may finalize your work by exporting the iPython Notebook as an HTML document. You can do this by using the menu above and navigating to  \n",
 #     "**File -> Download as -> HTML (.html)**. Include the finished document along with this notebook as your submission.
+
+# ### Temp validation area
+
+# In[39]:
+
+aug_training_file="./traffic-signs-data/aug_train.p"
+with open(aug_training_file, mode='rb') as f:
+    aug_train=pickle.load(f)
+
+
+# In[40]:
+
+aug_train.keys()
+
+
+# In[41]:
+
+aug_train_X=aug_train['vert_sym_features']
+aug_train_y=aug_train['vert_sym_labels']
+
+fpX=aug_train['fp_features']
+fpY=aug_train['fp_labels']
+
+aug_train_X=selected_pipeline.fit_transform(X4,y4)
+aug_train_y=y4
+
+
+# In[42]:
+
+aug_train_X.shape
+
+
+# In[43]:
+
+aug_train_y.shape
+
+
+# In[44]:
+
+with tf.Session() as sess:
+    loader = tf.train.import_meta_graph('lenet.meta')
+    saver.restore(sess, tf.train.latest_checkpoint('.'))
+    test_accuracy = evaluate(aug_train_X, aug_train_y)
+    print("test accuracy: %s"%test_accuracy)
+
 
 # In[ ]:
 
