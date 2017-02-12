@@ -1,7 +1,8 @@
 data
-.ipynb_checkpoints
+.ipynb_checkpoints/
 *.h5
 models
 *.swp
 *.p
 raw_images/
+.idea/
