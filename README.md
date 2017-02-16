@@ -7,9 +7,9 @@ This project trains a deep neural networks model to recognize the traffic signs 
 
 ![demo_image](./additional_images/prob_result_0.png)
 
-![demo_image](./additional_images/prob_result_6.png)
-
 ![demo_image](./additional_images/prob_result_4.png)
+
+![demo_image](./additional_images/prob_result_9.png)
 
 
 ### Dependencies
